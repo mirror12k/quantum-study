@@ -308,7 +308,7 @@ debug('_mul2(tensor2(one, zero), SWAP_sqrt_matrix)')
 debug('_mul2(_mul2(tensor2(one, zero), SWAP_sqrt_matrix), SWAP_sqrt_matrix)')
 test('_mul2(tensor2(one, zero), SWAP_matrix) == _mul2(_mul2(tensor2(one, zero), SWAP_sqrt_matrix), SWAP_sqrt_matrix)')
 
-_cmp_matrix = lambda z1,z2: all( cmath.isclose(z1[i],z2[i]) if type(z1[0]) != list and type(z1[0]) != tuple else _cmp_matrix(z1[i],z2[i]) for i in range(len(z1)) )
+_cmp_matrix = lambda z1,z2: all( cmath.isclose(z1[i],z2[i]) if type(z1[0]) != list and type(z1[0]) != tuple else _cmp_matrix(z1[i],z2[i]) for i in range(max(len(z1), len(z2))) )
 def tensor_matrix2(m1,*ms):
 	m = m1
 	for om in ms:
@@ -355,13 +355,187 @@ test('_cmp2(_mul2(tensor2(zero), compute_rotate_matrix(math.pi*4)), ((1+0j), 2.4
 def str_tensor(z):
 	size = math.log2(len(z))
 	f = "{0:f}|{1:0" + str(int(size)) + "b}>"
-	states = [ f.format(z[i].real, i) for i in range(len(z)) if not cmath.isclose(z[i], 0) ]
+	total = sum( sqrt(zi.real**2 + zi.imag**2) for zi in z )
+	states = [ f.format(sqrt(z[i].real**2 + z[i].imag**2), i) for i in range(len(z)) if not cmath.isclose(z[i], 0) ]
+	if len(states) == 1 and total == 1:
+		return ''.join([ ("|{1:0" + str(int(size)) + "b}>").format(sqrt(z[i].real**2 + z[i].imag**2), i) for i in range(len(z)) if not cmath.isclose(z[i], 0) ])
 	return ' + '.join(states)
 
+def tensor_from_string(s):
+	qubits_map = {
+		'0': zero,
+		'1': one,
+		'+': positive,
+		'-': negative,
+	}
+	return tensor2(*[ qubits_map[c] for c in s[1:-1] ])
 
-test('str_tensor(tensor2(zero)) == "1.000000|0>"')
-test('str_tensor(tensor2(zero, one, zero)) == "1.000000|010>"')
+
+test('str_tensor(tensor2(zero)) == "|0>"')
+test('str_tensor(tensor2(zero, one, zero)) == "|010>"')
 test('str_tensor(tensor2(positive)) == "0.707107|0> + 0.707107|1>"')
 test('str_tensor(_mul2(_mul2(tensor2(zero, zero), tensor_matrix2(HADAMARD_matrix, identity_matrix)), CNOT_matrix)) == "0.707107|00> + 0.707107|11>"')
-test('str_tensor(tensor2(one, one)) == "1.000000|11>"')
+test('str_tensor(tensor2(one, one)) == "|11>"')
+debug('tensor_from_string("|000>")')
+debug('tensor_from_string("|11>")')
+debug('tensor_from_string("|+1>")')
+debug('tensor_from_string("|+0>")')
+test('str_tensor(tensor_from_string("|00>")) == "|00>"')
+test('str_tensor(tensor_from_string("|10>")) == "|10>"')
+test('str_tensor(tensor_from_string("|01>")) == "|01>"')
+test('str_tensor(tensor_from_string("|11>")) == "|11>"')
+debug('str_tensor(tensor_from_string("|+0>")) == "0.707107|00> + 0.707107|10>"')
+
+
+
+
+Long_CNOT_matrix = _m2(
+	1,0,0,0,0,0,0,0,
+	0,1,0,0,0,0,0,0,
+	0,0,1,0,0,0,0,0,
+	0,0,0,1,0,0,0,0,
+	0,0,0,0,0,1,0,0,
+	0,0,0,0,1,0,0,0,
+	0,0,0,0,0,0,0,1,
+	0,0,0,0,0,0,1,0)
+
+
+class Tensor(object):
+	def __init__(self, *states):
+		self._t = tensor2(*[ tensor_from_string(s) if type(s) == str else s for s in states ])
+	def __str__(self):
+		return str_tensor(self._t)
+	def __mul__(self, other):
+		if type(other) is Tensor:
+			return Tensor(self._t, other._t)
+		elif type(other) is MatrixGate:
+			return Tensor(_mul2(self._t, other._t))
+		elif type(other) is float or type(other) is int:
+			return Tensor([ v * other for v in self._t ])
+		else:
+			raise Exception('invalid other:' + str(other))
+	def __eq__(self, other):
+		if type(other) is Tensor:
+			if len(self._t) != len(other._t):
+				raise Exception('invalid length tensor comparison: {} ?= {}'.format(str(self), str(other)))
+			return all( cmath.isclose(self._t[i], other._t[i]) for i in range(len(self._t)) )
+		elif type(other) is str:
+			return str(self) == other
+		else:
+			raise Exception('invalid other:' + str(other))
+
+class MultiTensor(object):
+	def from_pattern(length):
+		return MultiTensor(*[ ("|{0:0" + str(int(length)) + "b}>").format(i) for i in range(2 ** int(length)) ])
+	def __init__(self, *tensors):
+		self._t = [ Tensor(t) if type(t) == str else t for t in tensors ]
+	def __str__(self):
+		return str([ str(t) for t in self._t ])
+	def __mul__(self, other):
+		if type(other) is Tensor or type(other) is MatrixGate or type(other) is float or type(other) is int:
+			return MultiTensor(*[ t * other for t in self._t ])
+		else:
+			raise Exception('invalid other:' + str(other))
+	def __eq__(self, other):
+		if type(other) is MultiTensor:
+			if len(self._t) != len(other._t):
+				raise Exception('invalid length multi-tensor comparison: {} ?= {}'.format(str(self), str(other)))
+			return all( self._t[i] == other._t[i] for i in range(len(self._t)) )
+		elif type(other) is str:
+			return str(self) == other
+		else:
+			raise Exception('invalid other:' + str(other))
+
+
+def gate_from_string(s):
+	gate_map = {
+		'I': identity_matrix,
+		'H': HADAMARD_matrix,
+		'X': NOTGATE_matrix,
+		'Z': Z_matrix,
+		'S': S_matrix,
+		'T': T_matrix,
+		'Tdag': T_dagger_matrix,
+		'CNOT': CNOT_matrix,
+		'CCNOT': CCNOT_matrix,
+		'Long_CNOT': Long_CNOT_matrix,
+		'SWAP': SWAP_matrix,
+	}
+	return tensor_matrix2(*[ gate_map[g.strip()] for g in s.split('*') ])
+class MatrixGate(object):
+	def __init__(self, *gates):
+		self._t = tensor_matrix2(*[ gate_from_string(s) if type(s) == str else s for s in gates ])
+	def __str__(self):
+		return str(self._t)
+	def __mul__(self, other):
+		if type(other) is MatrixGate:
+			return MatrixGate(self._t, other._t)
+		else:
+			raise Exception('invalid other:' + str(other))
+	def __eq__(self, other):
+		if type(other) is MatrixGate:
+			return _cmp_matrix(self._t, other._t)
+		elif type(other) is list:
+			return _cmp_matrix(self._t, other)
+		else:
+			raise Exception('invalid other:' + str(other))
+		
+
+
+debug('Tensor("|00>", "|1>", "|0>")')
+debug('Tensor("|0>", "|+>")')
+debug('Tensor("|0>", "|1>") * Tensor("|0>", "|1>")')
+debug('Tensor("|00>") * 2')
+
+test('Tensor("|00>", "|1>", "|0>") == "|0010>"')
+test('Tensor("|00>", "|1>", "|0>") != "|0110>"')
+test('Tensor("|00>", "|1>", "|0>") == Tensor("|0010>")')
+test('Tensor("|00>", "|1>", "|0>") != Tensor("|0110>")')
+test('Tensor("|0>", "|1>", "|1>", "|0>") == Tensor("|0110>")')
+test('Tensor("|0>", "|+>") == "0.707107|00> + 0.707107|01>"')
+test('Tensor("|0>", "|1>") * Tensor("|0>", "|1>") == "|0101>"')
+test('Tensor("|00>") * 2 == "2.000000|00>"')
+
+debug('MatrixGate("I*I")')
+debug('MatrixGate("I*X")')
+test('MatrixGate("I*I") == [[(1+0j), 0j, 0j, 0j], [0j, (1+0j), 0j, 0j], [0j, 0j, (1+0j), 0j], [0j, 0j, 0j, (1+0j)]]')
+test('MatrixGate("I*X") == [[0j, (1+0j), 0j, 0j], [(1+0j), 0j, 0j, 0j], [0j, 0j, 0j, (1+0j)], [0j, 0j, (1+0j), 0j]]')
+test('MatrixGate("I*I") == tensor_matrix2(identity_matrix, identity_matrix)')
+test('MatrixGate("I*I") != tensor_matrix2(identity_matrix, HADAMARD_matrix)')
+test('MatrixGate("I*H") != tensor_matrix2(identity_matrix, identity_matrix)')
+test('MatrixGate("I*H") == tensor_matrix2(identity_matrix, HADAMARD_matrix)')
+test('MatrixGate("I*I") * MatrixGate("H") == tensor_matrix2(identity_matrix, identity_matrix, HADAMARD_matrix)')
+test('MatrixGate("I*I") * MatrixGate("H") == MatrixGate("I*I*H")')
+test('MatrixGate("I*I") * MatrixGate("H") != MatrixGate("I*I*H*I")')
+
+debug('Tensor("|000>") * MatrixGate(Long_CNOT_matrix)')
+debug('Tensor("|001>") * MatrixGate(Long_CNOT_matrix)')
+debug('Tensor("|010>") * MatrixGate(Long_CNOT_matrix)')
+debug('Tensor("|011>") * MatrixGate(Long_CNOT_matrix)')
+debug('Tensor("|100>") * MatrixGate(Long_CNOT_matrix)')
+debug('Tensor("|101>") * MatrixGate(Long_CNOT_matrix)')
+debug('Tensor("|110>") * MatrixGate(Long_CNOT_matrix)')
+debug('Tensor("|111>") * MatrixGate(Long_CNOT_matrix)')
+debug('MultiTensor.from_pattern(3)')
+debug('MultiTensor.from_pattern(3) * MatrixGate(Long_CNOT_matrix)')
+# debug('''MultiTensor.from_pattern(3) * MatrixGate("I*I*H") * MatrixGate("I*CNOT")''')
+
+for t in MultiTensor.from_pattern(3)._t:
+	print(t, '->', t
+			* MatrixGate("H*I*I")
+			* MatrixGate("I*CNOT")
+			, (t * MatrixGate("H*I*I") * MatrixGate("I*CNOT"))._t
+			# * MatrixGate("I*I*Tdag")
+			# * MatrixGate("Long_CNOT")
+			# * MatrixGate("I*I*T")
+			# * MatrixGate("I*CNOT")
+			# * MatrixGate("I*I*Tdag")
+			# * MatrixGate("Long_CNOT")
+			# * MatrixGate("I*Tdag*T")
+			# * MatrixGate("CNOT*H")
+			# * MatrixGate("I*Tdag*I")
+			# * MatrixGate("CNOT*I")
+			# * MatrixGate("T*S*I")
+			)
+
 
