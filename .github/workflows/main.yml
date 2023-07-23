@@ -13,6 +13,7 @@ jobs:
         run: |
           git clone --single-branch "https://github.com/mirror12k/mirror12k.github.io.git" "upload_project"
           ls upload_project
+          mkdir -p upload_project/$FILEPATH
           rm -rf upload_project/$FILEPATH
           mv *.py *.html upload_project/$FILEPATH
           git config --global user.email "robot@robot.local"
