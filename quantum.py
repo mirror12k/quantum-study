@@ -748,7 +748,7 @@ fun = parse_instructions_block('''hadamard 0''')
 debug('fun(MultiTensor.from_pattern(2))')
 test('fun(MultiTensor.from_pattern(2)) == "0.707107|00> + 0.707107|01>,0.707107|00> + 0.707107|01>,0.707107|10> + 0.707107|11>,0.707107|10> + 0.707107|11>"')
 
-
+# turns out this is just a very long and complicated ccnot gate :P
 fun = parse_instructions_block('''
 hadamard 2
 cnot 1,2
@@ -770,4 +770,5 @@ sgate 1
 
 for t in MultiTensor.from_pattern(3)._t:
 	print(t, '->', fun(t))
+
 
