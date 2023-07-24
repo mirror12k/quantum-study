@@ -772,3 +772,51 @@ for t in MultiTensor.from_pattern(3)._t:
 	print(t, '->', fun(t))
 
 
+def is_power_of_2(x):
+	return x and (not(x & (x - 1)))
+def is_one_bit_difference(a, b):
+	return is_power_of_2(a ^ b)
+def difference_positions(a, b):
+	return [i for i in range(len(a)) if a[i] != b[i]]
+
+def str_tensor_pretty(z):
+	size = math.log2(len(z))
+	f = "|{0:0" + str(int(size)) + "b}>"
+	total = sqrt(sum( zi.real**2 + zi.imag**2 for zi in z ))
+
+	states = { f.format(i): [ i, z[i] ] for i in range(len(z)) if sqrt(z[i].real**2 + z[i].imag**2) > 0.0000000001 }
+	# print(states, total)
+	if len(states) == 1 and not abs(total - 1) > 0.0000000001:
+		s = list(states.keys())[0]
+		return s
+	elif len(states) == 2 and not abs(total - 1) > 0.0000000001:
+		(k1, k2) = states.keys()
+		(s1, s2) = states.values()
+		if is_one_bit_difference(s1[0], s2[0]):
+			if s1[1] == s2[1]:
+				# print('positive!')
+				p = difference_positions(k1, k2)[0]
+				k = list(k1)
+				k[p] = '+'
+				return ''.join(k)
+			elif s1[1] == -s2[1]:
+				# print('negative!')
+				p = difference_positions(k1, k2)[0]
+				k = list(k1)
+				k[p] = '-'
+				return ''.join(k)
+			else:
+				return str_tensor(z)
+		else:
+			return str_tensor(z)
+	else:
+		return str_tensor(z)
+
+
+
+print(str_tensor_pretty(Tensor('|0>')._t))
+print(str_tensor_pretty(Tensor('|+>')._t))
+print(str_tensor_pretty(Tensor('|->')._t))
+print(str_tensor_pretty(Tensor('|0+>')._t))
+print(str_tensor_pretty(Tensor('|-1>')._t))
+
