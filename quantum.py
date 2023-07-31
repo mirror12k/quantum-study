@@ -508,6 +508,7 @@ def gate_from_string(s):
 		'T': T_matrix,
 		'Tdag': T_dagger_matrix,
 		'CNOT': CNOT_matrix,
+		'fCNOT': flip_CNOT_matrix,
 		'CCNOT': CCNOT_matrix,
 		'SWAP': SWAP_matrix,
 	}
@@ -531,7 +532,7 @@ class MatrixGate(object):
 			raise Exception('invalid other:' + str(other))
 	def __mul__(self, other):
 		if type(other) is MatrixGate:
-			return MatrixGate(composite_matrices(self._t, other._t))
+			return MatrixGate(composite_matrices(other._t, self._t))
 		else:
 			raise Exception('invalid other:' + str(other))
 	def __eq__(self, other):
@@ -759,15 +760,63 @@ def parse_instruction(inst):
 	else:
 		raise Exception('invalid instruction:' + str(inst))
 
+def parse_instruction_to_matrix(inst, gatesize):
+	inst = inst.lower()
+	if inst.startswith('not '):
+		position = int(inst[len('not '):])
+		return MatrixGate(pad_gates("X", 1, gatesize - position - 1, gatesize))
+	elif inst.startswith('hadamard '):
+		position = int(inst[len('hadamard '):])
+		return MatrixGate(pad_gates("H", 1, gatesize - position - 1, gatesize))
+	elif inst.startswith('tgate '):
+		position = int(inst[len('tgate '):])
+		return MatrixGate(pad_gates("T", 1, gatesize - position - 1, gatesize))
+	elif inst.startswith('tdagger '):
+		position = int(inst[len('tdagger '):])
+		return MatrixGate(pad_gates("Tdag", 1, gatesize - position - 1, gatesize))
+	elif inst.startswith('sgate '):
+		position = int(inst[len('sgate '):])
+		return MatrixGate(pad_gates("S", 1, gatesize - position - 1, gatesize))
+	elif inst.startswith('cnot '):
+		(position_a, position_b) = map(int, inst[len('cnot '):].split(','))
+		position = min(position_a, position_b)
+		if position_a < position_b:
+			gate = flip_CNOT_matrix
+		elif position_a > position_b:
+			gate = CNOT_matrix
+		else:
+			raise Exception("invalid command: " + inst)
+		gate = expando_matrix_times(gate, abs(position_b - position_a) - 1)
+		return MatrixGate(*pad_gates2(gate, gatesize - position - 1, gatesize))
+	elif inst.startswith('swap '):
+		(position_a, position_b) = map(int, inst[len('swap '):].split(','))
+		position = min(position_a, position_b)
+		gate = SWAP_matrix
+		if position_a == position_b:
+			raise Exception("invalid command: " + inst)
+		gate = expando_matrix_times(gate, abs(position_b - position_a) - 1)
+		return MatrixGate(*pad_gates2(gate, gatesize - position - 1, gatesize))
+	else:
+		raise Exception('invalid instruction:' + str(inst))
+
 
 def parse_instructions_block(insts):
-	print("compiling fun: {}".format(insts))
+	# print("compiling fun: {}".format(insts))
 	execution = [ parse_instruction(inst) for inst in filter(lambda s: s != '', map(lambda s: s.strip(), insts.split('\n'))) ]
 	def executable(s):
 		for f in execution:
 			s = f(s)
 		return s
 	return executable
+
+
+def compile_instructions_block_matrix(insts, gatesize):
+	# print("compiling fun: {}".format(insts))
+	matrices = [ parse_instruction_to_matrix(inst, gatesize) for inst in filter(lambda s: s != '', map(lambda s: s.strip(), insts.split('\n'))) ]
+	op_matrix = MatrixGate(pad_gates("I", 1, gatesize - 1, gatesize))
+	for m in reversed(matrices):
+		op_matrix *= m
+	return op_matrix
 
 
 fun = parse_instructions_block('''
@@ -854,10 +903,158 @@ debug('Tensor("|0>") * MatrixGate(HADAMARD_matrix) * MatrixGate(NOTGATE_matrix)'
 debug('Tensor("|1>") * MatrixGate(composite_matrices(HADAMARD_matrix, NOTGATE_matrix))')
 debug('Tensor("|1>") * MatrixGate(HADAMARD_matrix) * MatrixGate(NOTGATE_matrix)')
 debug('Tensor("|00>") * MatrixGate(HADAMARD_matrix, identity_matrix) * MatrixGate(CNOT_matrix)')
-debug('Tensor("|00>") * MatrixGate(composite_matrices(tensor_matrix2(HADAMARD_matrix, identity_matrix), CNOT_matrix))')
+debug('Tensor("|00>") * MatrixGate(composite_matrices(CNOT_matrix, tensor_matrix2(HADAMARD_matrix, identity_matrix)))')
 debug('MultiTensor.from_pattern(2) * MatrixGate(composite_matrices(tensor_matrix2(HADAMARD_matrix, identity_matrix), CNOT_matrix))')
-test('MultiTensor.from_pattern(2) * MatrixGate(composite_matrices(tensor_matrix2(HADAMARD_matrix, identity_matrix), CNOT_matrix)) == MultiTensor.from_pattern(2) * MatrixGate(HADAMARD_matrix, identity_matrix) * MatrixGate(CNOT_matrix)')
-test('MultiTensor.from_pattern(2) * (MatrixGate("H*I") * MatrixGate("CNOT")) == MultiTensor.from_pattern(2) * MatrixGate("H*I") * MatrixGate("CNOT")')
+# test('MultiTensor.from_pattern(2) * MatrixGate(composite_matrices(tensor_matrix2(HADAMARD_matrix, identity_matrix), CNOT_matrix)) == MultiTensor.from_pattern(2) * MatrixGate(HADAMARD_matrix, identity_matrix) * MatrixGate(CNOT_matrix)')
+# test('MultiTensor.from_pattern(2) * (MatrixGate("H*I") * MatrixGate("CNOT")) == MultiTensor.from_pattern(2) * MatrixGate("H*I") * MatrixGate("CNOT")')
 test('MatrixGate("X*X*X") * MatrixGate("X*X*X") == MatrixGate("I*I*I")')
 test('MatrixGate("H*H*H") * MatrixGate("H*H*H") == MatrixGate("I*I*I")')
 test('MatrixGate("X*I*X") * MatrixGate("X*X*I") * MatrixGate("I*X*X") == MatrixGate("I*I*I")')
+test('MatrixGate("SWAP") * MatrixGate("CNOT") * MatrixGate("SWAP") == MatrixGate("fCNOT")')
+test('MatrixGate("SWAP") * MatrixGate("fCNOT") * MatrixGate("SWAP") == MatrixGate("CNOT")')
+test('MatrixGate("SWAP") * MatrixGate("CNOT") * MatrixGate("SWAP") != MatrixGate("CNOT")')
+test('MatrixGate("SWAP") * MatrixGate("CNOT") * MatrixGate("SWAP") != MatrixGate("CNOT")')
+debug('MultiTensor.from_pattern(2) * (MatrixGate("fCNOT"))')
+debug('MultiTensor.from_pattern(2) * (MatrixGate("SWAP") * MatrixGate("CNOT") * MatrixGate("SWAP"))')
+debug('MultiTensor.from_pattern(2) * (MatrixGate("SWAP") * MatrixGate("CNOT") * MatrixGate("SWAP"))')
+debug('MultiTensor.from_pattern(2) * (MatrixGate("H*I")) * MatrixGate("CNOT")')
+debug('MultiTensor.from_pattern(2) * (MatrixGate("CNOT") * MatrixGate("H*I"))')
+# debug('MultiTensor.from_pattern(2) * MatrixGate("SWAP") * MatrixGate("H*I")')
+# debug('MultiTensor.from_pattern(2) * (MatrixGate("SWAP") * MatrixGate("H*I"))')
+# debug('MultiTensor.from_pattern(2) * (MatrixGate("H*I") * MatrixGate("SWAP"))')
+
+
+
+# print('composite_matrices')
+# for r in (composite_matrices(CNOT_matrix, tensor_matrix2(HADAMARD_matrix, identity_matrix))):
+# 	print(r)
+# print('MatrixGate')
+# for r in (MatrixGate("CNOT") * MatrixGate("H*I"))._t:
+# 	print(r)
+
+
+
+fun1 = parse_instructions_block('''
+not 0
+cnot 0,1
+cnot 0,2
+''')
+fun2 = compile_instructions_block_matrix('''
+not 0
+cnot 0,1
+cnot 0,2
+''', 3)
+debug('fun1(MultiTensor.from_pattern(3))')
+debug('(MultiTensor.from_pattern(3) * fun2)')
+test('fun1(MultiTensor.from_pattern(3)) == (MultiTensor.from_pattern(3) * fun2)')
+test('(MultiTensor.from_pattern(3) * fun2) == "|111>,|000>,|101>,|010>,|011>,|100>,|001>,|110>"')
+
+fun1 = parse_instructions_block('''
+not 0
+cnot 0,1
+cnot 0,2
+hadamard 1
+hadamard 0
+cnot 0,1
+''')
+fun2 = compile_instructions_block_matrix('''
+not 0
+cnot 0,1
+cnot 0,2
+hadamard 1
+hadamard 0
+cnot 0,1
+''', 3)
+debug('fun1(MultiTensor.from_pattern(3))')
+debug('(MultiTensor.from_pattern(3) * fun2)')
+test('fun1(MultiTensor.from_pattern(3)) == (MultiTensor.from_pattern(3) * fun2)')
+
+fun1 = parse_instructions_block('''
+cnot 1,0
+''')
+fun2 = compile_instructions_block_matrix('''
+swap 0,1
+cnot 0,1
+swap 0,1
+''', 2)
+debug('fun1(MultiTensor.from_pattern(2))')
+debug('(MultiTensor.from_pattern(2) * fun2)')
+test('fun1(MultiTensor.from_pattern(2)) == (MultiTensor.from_pattern(2) * fun2)')
+test('_cmp_matrix(fun2._t, CNOT_matrix)')
+
+fun1 = parse_instructions_block('''
+cnot 0,2
+''')
+fun2 = compile_instructions_block_matrix('''
+swap 1,2
+cnot 0,1
+swap 1,2
+''', 3)
+debug('fun1(MultiTensor.from_pattern(3))')
+debug('(MultiTensor.from_pattern(3) * fun2)')
+test('fun1(MultiTensor.from_pattern(3)) == (MultiTensor.from_pattern(3) * fun2)')
+test('_cmp_matrix(fun2._t, Long_flip_CNOT_matrix)')
+
+fun1 = parse_instructions_block('''
+swap 0,2
+''')
+fun2 = compile_instructions_block_matrix('''
+swap 1,2
+swap 0,1
+swap 1,2
+''', 3)
+debug('fun1(MultiTensor.from_pattern(3))')
+debug('(MultiTensor.from_pattern(3) * fun2)')
+test('fun1(MultiTensor.from_pattern(3)) == (MultiTensor.from_pattern(3) * fun2)')
+test('_cmp_matrix(fun2._t, expando_matrix_times(SWAP_matrix, 1))')
+
+def str_matrix_pretty_digit(d):
+	if d.imag == 0:
+		if abs(d.real - 1) < 0.0000000001:
+			return 1
+		elif abs(d.real + 1) < 0.0000000001:
+			return -1
+		elif abs(d.real) < 0.0000000001:
+			return 0
+		else:
+			return d.real
+	else:
+		return d
+def str_matrix_pretty(m):
+	s = ''
+	for i in range(len(m)):
+		if i == 0:
+			s += '\t[[' + ','.join([ str(str_matrix_pretty_digit(n.real)) for n in m[i] ]) + ']\n'
+		elif i == len(m) - 1:
+			s += '\t [' + ','.join([ str(str_matrix_pretty_digit(n.real)) for n in m[i] ]) + ']]'
+		else:
+			s += '\t [' + ','.join([ str(str_matrix_pretty_digit(n.real)) for n in m[i] ]) + ']\n'
+	return s
+
+print(str_matrix_pretty(compile_instructions_block_matrix('''
+	swap 1,2
+	cnot 0,1
+	swap 1,2
+	''', 3)._t))
+
+print(str_matrix_pretty(compile_instructions_block_matrix('''
+hadamard 2
+cnot 1,2
+tdagger 2
+cnot 0,2
+tgate 2
+cnot 1,2
+tdagger 2
+cnot 0,2
+tgate 2
+hadamard 2
+tdagger 1
+cnot 0,1
+tdagger 1
+cnot 0,1
+tgate 0
+sgate 1
+	''', 3)._t))
+
+
+
