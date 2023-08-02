@@ -1058,6 +1058,7 @@ sgate 1
 	''')._t))
 
 
+# rebuilds the matrix using SWAPs until a,b are in 1,0 order for standard gates
 def build_arbitrary_2gate_matrix(m, a, b):
 	instructions = []
 	offset = min(a,b)
@@ -1070,7 +1071,7 @@ def build_arbitrary_2gate_matrix(m, a, b):
 
 	for i in reversed(list(range(dist-1))):
 		instructions.append('swap {},{}'.format(i+1, i+2))
-	if a > b:
+	if a < b:
 		instructions.append('swap 0,1')
 	pre_instructions = '\n'.join(instructions)
 	post_instructions = '\n'.join(reversed(instructions))
@@ -1090,16 +1091,59 @@ print(str_matrix_pretty(compile_instructions_block_matrix(3, '''
 	swap 0,1
 	swap 1,2
 	''')._t))
-test('build_arbitrary_2gate_matrix(MatrixGate("fCNOT"), 1,0) == MatrixGate(CNOT_matrix)')
-test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 1,0) == MatrixGate(flip_CNOT_matrix)')
-test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 0,2) == MatrixGate(Long_CNOT_matrix)')
-test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 2,0) == MatrixGate(Long_flip_CNOT_matrix)')
-test('build_arbitrary_2gate_matrix(MatrixGate("fCNOT"), 2,0) == compile_instructions_block_matrix(3, """\nswap 1,2\nswap 0,1\ncnot 0,1\nswap 0,1\nswap 1,2\n""")')
-test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 0,3) == MatrixGate(expando_matrix_times(CNOT_matrix, 2))')
-test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 0,4) == MatrixGate(expando_matrix_times(CNOT_matrix, 3))')
-test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 4,0) == MatrixGate(expando_matrix_times(flip_CNOT_matrix, 3))')
+test('build_arbitrary_2gate_matrix(MatrixGate("fCNOT"), 1,0) == MatrixGate(flip_CNOT_matrix)')
+test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 1,0) == MatrixGate(CNOT_matrix)')
+test('build_arbitrary_2gate_matrix(MatrixGate("fCNOT"), 0,1) == MatrixGate(CNOT_matrix)')
+test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 0,1) == MatrixGate(flip_CNOT_matrix)')
+test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 2,0) == MatrixGate(Long_CNOT_matrix)')
+test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 0,2) == MatrixGate(Long_flip_CNOT_matrix)')
+test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 0,2) == compile_instructions_block_matrix(3, """\nswap 1,2\nswap 0,1\ncnot 1,0\nswap 0,1\nswap 1,2\n""")')
+test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 3,0) == MatrixGate(expando_matrix_times(CNOT_matrix, 2))')
+test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 4,0) == MatrixGate(expando_matrix_times(CNOT_matrix, 3))')
+test('build_arbitrary_2gate_matrix(MatrixGate("CNOT"), 0,4) == MatrixGate(expando_matrix_times(flip_CNOT_matrix, 3))')
 test('build_arbitrary_2gate_matrix(MatrixGate("SWAP"), 0,4) == MatrixGate(expando_matrix_times(SWAP_matrix, 3))')
 test('build_arbitrary_2gate_matrix(MatrixGate("SWAP"), 0,3) != MatrixGate(expando_matrix_times(CNOT_matrix, 2))')
-test('build_arbitrary_2gate_matrix(MatrixGate("fCNOT"), 0,3) == MatrixGate(expando_matrix_times(flip_CNOT_matrix, 2))')
-test('build_arbitrary_2gate_matrix(MatrixGate("fCNOT"), 0,3) != MatrixGate(expando_matrix_times(CNOT_matrix, 2))')
+test('build_arbitrary_2gate_matrix(MatrixGate("fCNOT"), 3,0) == MatrixGate(expando_matrix_times(flip_CNOT_matrix, 2))')
+test('build_arbitrary_2gate_matrix(MatrixGate("fCNOT"), 3,0) != MatrixGate(expando_matrix_times(CNOT_matrix, 2))')
+
+
+
+# rebuilds the matrix using SWAPs until a,b,c are in 2,1,0 order for standard gates
+def build_arbitrary_3gate_matrix(m, a, b, c):
+	instructions = []
+	offset = min(a,b,c)
+	a -= offset
+	b -= offset
+	c -= offset
+	dist = max(abs(a-b), abs(a-c), abs(b-c))
+
+	while m.size() < dist + 1:
+		m = MatrixGate('I', m._t)
+
+	if a != 2:
+		instructions.append('swap {},{}'.format(a, 2))
+		if b == 2:
+			b = a
+		elif c == 2:
+			c = a
+	if b != 1:
+		instructions.append('swap {},{}'.format(b, 1))
+		if c == 1:
+			c = b
+	if c != 0:
+		instructions.append('swap {},{}'.format(c, 0))
+
+	pre_instructions = '\n'.join(instructions)
+	post_instructions = '\n'.join(reversed(instructions))
+	# print('pre:', pre_instructions)
+	# print('post:', post_instructions)
+	return compile_instructions_block_matrix(dist+1, pre_instructions, m, post_instructions)
+
+
+
+print('CCNOT 2,1,0\n', '\n'.join([ '\t' + str(t) + ' -> ' + str(t * MatrixGate("CCNOT")) for t in MultiTensor.from_pattern(3)._t ]))
+print('CCNOT 2,0,1\n', '\n'.join([ '\t' + str(t) + ' -> ' + str(t * build_arbitrary_3gate_matrix(MatrixGate("CCNOT"), 2,0,1)) for t in MultiTensor.from_pattern(3)._t ]))
+print('CCNOT 1,0,2\n', '\n'.join([ '\t' + str(t) + ' -> ' + str(t * build_arbitrary_3gate_matrix(MatrixGate("CCNOT"), 1,0,2)) for t in MultiTensor.from_pattern(3)._t ]))
+print('CCNOT 0,2,3\n', '\n'.join([ '\t' + str(t) + ' -> ' + str(t * build_arbitrary_3gate_matrix(MatrixGate("CCNOT"), 0,2,3)) for t in MultiTensor.from_pattern(4)._t ]))
+# print('CCNOT 0,2,4\n', '\n'.join([ '\t' + str(t) + ' -> ' + str(t * build_arbitrary_3gate_matrix(MatrixGate("CCNOT"), 0,2,4)) for t in MultiTensor.from_pattern(5)._t ]))
 
