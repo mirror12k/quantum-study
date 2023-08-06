@@ -3,6 +3,7 @@
 from math import sqrt, sin, cos
 import math
 import cmath
+import random
 
 
 
@@ -477,6 +478,19 @@ def str_tensor_pretty(z):
 		return ''.join([ ("|{0:0" + str(int(size)) + "b}>").format(i) for i in range(len(z)) if sqrt(z[i].real**2 + z[i].imag**2) > 0.0000000001 ])
 	return ' + '.join(states)
 
+def measure_tensor(t):
+	size = int(sqrt(len(t._t)))
+	amps = [ sqrt(a.real**2 + a.imag**2) for a in t._t ]
+	total = sum(amps)
+	p = random.random() * total
+
+	for i in range(len(amps)):
+		if amps[i] > p:
+			return Tensor(("|{0:0" + str(int(size)) + "b}>").format(i))
+		else:
+			p -= amps[i]
+	print("[MEASUREMENT-ERROR]:", t)
+	return "[MEASUREMENT-ERROR]"
 
 class Tensor(object):
 	def __init__(self, *states):
@@ -503,6 +517,8 @@ class Tensor(object):
 			raise Exception('invalid other:' + str(other))
 	def size(self):
 		return int(math.log2(len(self._t)))
+	def measure(self):
+		return measure_tensor(self)
 
 
 class MultiTensor(object):
@@ -1375,3 +1391,18 @@ cnot 0,1
 """)
 for t in MultiTensor.from_pattern(4)._t:
 	print(t, '->', t * m)
+
+debug('MultiTensor.from_pattern(2) * compile_instructions_block_matrix2(2, "hadamard 0\\n cnot 0,1")')
+test('MultiTensor.from_pattern(2) * compile_instructions_block_matrix2(2, "hadamard 0\\n cnot 0,1") == "1/√2|00> + 1/√2|11>,1/√2|00> + 1/√2|11>,1/√2|01> + 1/√2|10>,1/√2|01> + 1/√2|10>"')
+debug('MultiTensor.from_pattern(2) * compile_instructions_block_matrix2(2, "hadamard 0\\n hadamard 1")')
+test('MultiTensor.from_pattern(2) * compile_instructions_block_matrix2(2, "hadamard 0\\n hadamard 1") == "1/√4|00> + 1/√4|01> + 1/√4|10> + 1/√4|11>,1/√4|00> + 1/√4|01> + 1/√4|10> + 1/√4|11>,1/√4|00> + 1/√4|01> + 1/√4|10> + 1/√4|11>,1/√4|00> + 1/√4|01> + 1/√4|10> + 1/√4|11>"')
+
+
+
+
+for i in range(10):
+	debug('measure_tensor(Tensor("|00>") * compile_instructions_block_matrix2(2, "hadamard 0\\n cnot 0,1"))')
+
+
+
+
