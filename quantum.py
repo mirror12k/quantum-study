@@ -480,10 +480,11 @@ def str_tensor_pretty(z):
 
 def measure_tensor(t):
 	size = int(sqrt(len(t._t)))
-	amps = [ sqrt(a.real**2 + a.imag**2) for a in t._t ]
+	amps = [ abs(a.real**2 + a.imag**2) for a in t._t ]
 	total = sum(amps)
 	p = random.random() * total
 
+	print("total:", total)
 	for i in range(len(amps)):
 		if amps[i] > p:
 			return Tensor(("|{0:0" + str(int(size)) + "b}>").format(i))
@@ -1405,4 +1406,50 @@ for i in range(10):
 
 
 
+def partial_measure_tensor(t, bit_index):
+	size = int(sqrt(len(t._t)))
+	amps = [ abs(a.real**2 + a.imag**2) for a in t._t ]
+
+	n = 1
+	n2 = 2**n
+	hn2 = n2 / 2
+	bitmap = [ i % (n2) >= hn2 for i in range(len(amps)) ]
+	chance0 = sum( amps[i] for i in range(len(amps)) if not bitmap[i] )
+	chance1 = sum( amps[i] for i in range(len(amps)) if bitmap[i] )
+
+	total = chance0 + chance1
+	p = random.random() * total
+
+	if p > chance0:
+		return Tensor([ t._t[i] / sqrt(chance1) if bitmap[i] else 0j for i in range(len(amps)) ])
+	else:
+		return Tensor([ t._t[i] / sqrt(chance0) if not bitmap[i] else 0j for i in range(len(amps)) ])
+
+
+	# total = sum(amps)
+	# p = random.random() * total
+
+	# for i in range(len(amps)):
+	# 	if amps[i] > p:
+	# 		return Tensor(("|{0:0" + str(int(size)) + "b}>").format(i))
+	# 	else:
+	# 		p -= amps[i]
+	# print("[MEASUREMENT-ERROR]:", t)
+	# return "[MEASUREMENT-ERROR]"
+
+for t in MultiTensor.from_pattern(2)._t:
+	# print(t, ' -> ', t._t)
+	print(t, ' -> ', str(partial_measure_tensor(t * compile_instructions_block_matrix2(2, "hadamard 0"), 0)))
+
+for t in MultiTensor.from_pattern(2)._t:
+	# print(t, ' -> ', t._t)
+	print(t, ' -> ', str(partial_measure_tensor(t * compile_instructions_block_matrix2(2, "hadamard 0"), 0)))
+
+
+# tensors = MultiTensor.from_pattern(3)._t
+# n = 1
+# n2 = 2**n
+# hn2 = n2 / 2
+# for i in range(len(tensors)):
+# 	print(i % (n2) >= hn2)
 
