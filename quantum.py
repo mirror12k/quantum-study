@@ -484,7 +484,7 @@ def measure_tensor(t):
 	total = sum(amps)
 	p = random.random() * total
 
-	print("total:", total)
+	# print("total:", total)
 	for i in range(len(amps)):
 		if amps[i] > p:
 			return Tensor(("|{0:0" + str(int(size)) + "b}>").format(i))
@@ -539,6 +539,30 @@ class MultiTensor(object):
 			if len(self._t) != len(other._t):
 				raise Exception('invalid length multi-tensor comparison: {} ?= {}'.format(str(self), str(other)))
 			return all( str(self._t[i]) == str(other._t[i]) for i in range(len(self._t)) )
+		elif type(other) is str:
+			return str(self) == other
+		else:
+			raise Exception('invalid other:' + str(other))
+	def size(self):
+		return self._t[0].size()
+
+
+class PartialMeasurementMultiTensor(MultiTensor):
+	def __init__(self, *tensors, probability=None):
+		self._t = [ Tensor(t) if type(t) == str else t for t in tensors ]
+		self._p = probability if probability is not None else tuple( 1.0/len(tensors) for t in tensors )
+	def __str__(self):
+		return ', '.join([ '({:.1f}% : {})'.format(self._p[i] * 100, str(self._t[i])) for i in range(len(self._p)) ])
+	def __mul__(self, other):
+		if type(other) is Tensor or type(other) is MatrixGate or type(other) is float or type(other) is int:
+			return PartialMeasurementMultiTensor(*[ t * other for t in self._t ], probability=self._p)
+		else:
+			raise Exception('invalid other:' + str(other))
+	def __eq__(self, other):
+		if type(other) is PartialMeasurementMultiTensor:
+			if len(self._t) != len(other._t):
+				raise Exception('invalid length multi-tensor comparison: {} ?= {}'.format(str(self), str(other)))
+			return all( str(self._t[i]) == str(other._t[i]) and str(self._p[i]) == str(other._p[i]) for i in range(len(self._t)) )
 		elif type(other) is str:
 			return str(self) == other
 		else:
@@ -1420,10 +1444,23 @@ def partial_measure_tensor(t, bit_index):
 	total = chance0 + chance1
 	p = random.random() * total
 
-	if p > chance0:
-		return Tensor([ t._t[i] / sqrt(chance1) if bitmap[i] else 0j for i in range(len(amps)) ])
+	if chance0 != 0 and chance1 != 0:
+		return PartialMeasurementMultiTensor(
+			Tensor([ t._t[i] / sqrt(chance0) if not bitmap[i] else 0j for i in range(len(amps)) ]),
+			Tensor([ t._t[i] / sqrt(chance1) if bitmap[i] else 0j for i in range(len(amps)) ]),
+			probability=(chance0, chance1))
+	elif chance0 == 0:
+		return PartialMeasurementMultiTensor(
+			Tensor([ t._t[i] / sqrt(chance1) if bitmap[i] else 0j for i in range(len(amps)) ]),
+			probability=(chance1,))
 	else:
-		return Tensor([ t._t[i] / sqrt(chance0) if not bitmap[i] else 0j for i in range(len(amps)) ])
+		return PartialMeasurementMultiTensor(
+			Tensor([ t._t[i] / sqrt(chance0) if not bitmap[i] else 0j for i in range(len(amps)) ]),
+			probability=(chance0,))
+	# if p > chance0:
+	# 	return Tensor([ t._t[i] / sqrt(chance1) if bitmap[i] else 0j for i in range(len(amps)) ])
+	# else:
+	# 	return Tensor([ t._t[i] / sqrt(chance0) if not bitmap[i] else 0j for i in range(len(amps)) ])
 
 
 	# total = sum(amps)
@@ -1437,13 +1474,9 @@ def partial_measure_tensor(t, bit_index):
 	# print("[MEASUREMENT-ERROR]:", t)
 	# return "[MEASUREMENT-ERROR]"
 
-for t in MultiTensor.from_pattern(2)._t:
+for t in MultiTensor.from_pattern(3)._t:
 	# print(t, ' -> ', t._t)
-	print(t, ' -> ', str(partial_measure_tensor(t * compile_instructions_block_matrix2(2, "hadamard 0"), 0)))
-
-for t in MultiTensor.from_pattern(2)._t:
-	# print(t, ' -> ', t._t)
-	print(t, ' -> ', str(partial_measure_tensor(t * compile_instructions_block_matrix2(2, "hadamard 0"), 0)))
+	print(t, ' -> ', str(partial_measure_tensor(t * compile_instructions_block_matrix2(3, "hadamard 1\n cnot 1,0\n hadamard 2"), 0)))
 
 
 # tensors = MultiTensor.from_pattern(3)._t
