@@ -171,8 +171,6 @@ CCNOT_matrix = _m2(
 def CCNOTGATE(z1, z2, z3):
 	return _mul2(tensor2(z1,z2,z3), CCNOT_matrix)
 
-
-
 # tensors n-vector by p-vector together
 def tensor2(z1,*zs):
 	r = z1
@@ -345,20 +343,23 @@ test('_mul2(tensor2(zero, one, zero), tensor_matrix2(identity_matrix, identity_m
 debug('_mul2(tensor2(zero, one, zero), tensor_matrix2(identity_matrix, SWAP_matrix))')
 test('_mul2(tensor2(zero, one, zero), tensor_matrix2(identity_matrix, SWAP_matrix)) == tensor2(zero, zero, one)')
 
-def compute_rotate_matrix(theta):
+def compute_rotateX_matrix(theta):
 	return _m2(
 		cos(theta/2), sin(theta/2) * complex(0,-1),
 		sin(theta/2) * complex(0,-1), cos(theta/2))
+def compute_rotateY_matrix(theta):
+	return _m2(
+		cos(theta/2), -sin(theta/2),
+		sin(theta/2), cos(theta/2))
 
-debug('compute_rotate_matrix(0)')
-debug('compute_rotate_matrix(math.pi)')
-debug('range(len(compute_rotate_matrix(math.pi*4)))')
-debug('_mul2(tensor2(zero), compute_rotate_matrix(math.pi*4))')
-debug('(_mul2(tensor2(zero), compute_rotate_matrix(math.pi*4)), zero)')
-test('_cmp2(_mul2(tensor2(zero), compute_rotate_matrix(math.pi)), ((6.123233995736766e-17+0j), -1j))')
-test('_cmp2(_mul2(tensor2(zero), compute_rotate_matrix(math.pi*2)), ((-1+0j), -1.2246467991473532e-16j))')
-test('_cmp2(_mul2(tensor2(zero), compute_rotate_matrix(math.pi*4)), ((1+0j), 2.4492935982947064e-16j))')
-
+debug('compute_rotateX_matrix(0)')
+debug('compute_rotateX_matrix(math.pi)')
+debug('range(len(compute_rotateX_matrix(math.pi*4)))')
+debug('_mul2(tensor2(zero), compute_rotateX_matrix(math.pi*4))')
+debug('(_mul2(tensor2(zero), compute_rotateX_matrix(math.pi*4)), zero)')
+test('_cmp2(_mul2(tensor2(zero), compute_rotateX_matrix(math.pi)), ((6.123233995736766e-17+0j), -1j))')
+test('_cmp2(_mul2(tensor2(zero), compute_rotateX_matrix(math.pi*2)), ((-1+0j), -1.2246467991473532e-16j))')
+test('_cmp2(_mul2(tensor2(zero), compute_rotateX_matrix(math.pi*4)), ((1+0j), 2.4492935982947064e-16j))')
 
 def str_tensor(z):
 	size = math.log2(len(z))
@@ -1230,6 +1231,8 @@ print('CCNOT 0,2,3\n', '\n'.join([ '\t' + str(t) + ' -> ' + str(t * build_arbitr
 
 def parse_arguments(args):
 	return map(lambda s: int(s.strip()), args.split(','))
+def parse_string_arguments(args):
+	return map(lambda s: s.strip(), args.split(','))
 
 def parse_instruction_to_matrix2(inst, gatesize):
 	single_gate_matrices = {
@@ -1239,6 +1242,10 @@ def parse_instruction_to_matrix2(inst, gatesize):
 		'tdagger': T_dagger_matrix,
 		'zgate': Z_matrix,
 		'sgate': S_matrix,
+	}
+	rotate_gate_builders = {
+		'rx': compute_rotateX_matrix,
+		'ry': compute_rotateY_matrix,
 	}
 	two_gate_matrices = {
 		'cnot': CNOT_matrix,
@@ -1254,6 +1261,11 @@ def parse_instruction_to_matrix2(inst, gatesize):
 	if inst_type in single_gate_matrices:
 		position = int(position)
 		return MatrixGate(single_gate_matrices[inst_type]).pad_to_size(position, gatesize)
+	elif inst_type in rotate_gate_builders:
+		(position, angle) = parse_string_arguments(position)
+		position = int(position)
+		angle = math.pi * (float(angle) / 180.0)
+		return MatrixGate(rotate_gate_builders[inst_type](angle)).pad_to_size(position, gatesize)
 	elif inst_type in two_gate_matrices:
 		(position_a, position_b) = parse_arguments(position)
 		left_position = min(position_a, position_b)
@@ -1283,6 +1295,10 @@ def parse_instruction_to_str(inst, gatesize):
 		'zgate': 'Z',
 		'sgate': 'S',
 	}
+	rotate_gate_builders = {
+		'rx': 'rX',
+		'ry': 'rY',
+	}
 	two_gate_matrices = {
 		'cnot': 'oX',
 		'swap': 'xx',
@@ -1294,10 +1310,17 @@ def parse_instruction_to_str(inst, gatesize):
 
 	inst = inst.lower()
 	(inst_type, position) = inst.split(' ', 1)
-	base_str = [ '-' if i % 2 == 0 else ' ' for i in range(gatesize * 2 - 1) ]
+	base_str = [ '-' if i % 2 == 0 else ' ' for i in range(gatesize * 2) ]
 	if inst_type in single_gate_matrices:
 		position = int(position)
 		base_str[2 * position] = single_gate_matrices[inst_type]
+	elif inst_type in rotate_gate_builders:
+		(position, angle) = parse_string_arguments(position)
+		position = int(position)
+		base_str[2 * position] = rotate_gate_builders[inst_type]
+		print(base_str)
+		base_str[2 * position+1] = str(int(float(angle)))
+		print(base_str)
 	elif inst_type in two_gate_matrices:
 		(position_a, position_b) = parse_arguments(position)
 		min_position = min(position_a, position_b)
@@ -1323,7 +1346,7 @@ def compile_instructions_str(gatesize, *insts):
 	# print("compiling fun: {}".format(insts))
 	insts = flatten([ filter(lambda s: s != '', map(lambda s: s.strip(), i.split('\n'))) if type(i) is str else [ i ] for i in insts ])
 	strs = [ parse_instruction_to_str(i, gatesize) if type(i) is str else i for i in insts ]
-	lines = [ ['[]-'] + ['-'] * (len(strs) * 2) + ['-[]'] if i % 2 == 0 else ['   '] + [' '] * (len(strs) * 2) + ['   '] for i in range(gatesize * 2 - 1) ]
+	lines = [ ['[]-'] + ['-'] * (len(strs) * 2) + ['-[]'] if i % 2 == 0 else ['   '] + [' '] * (len(strs) * 2) + ['   '] for i in range(gatesize * 2) ]
 	for si in range(len(strs)):
 		for i in range(len(lines)):
 			lines[i][si*2+1] = strs[si][i]
