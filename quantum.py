@@ -1338,7 +1338,9 @@ def compile_instructions_block_matrix2(gatesize, *insts):
 	return op_matrix
 
 def compile_command_instruction(inst, current_gatesize):
-	if inst.startswith('state '):
+	if inst.startswith('gatesize '):
+		return int(inst[len('gatesize '):]), lambda s: s
+	elif inst.startswith('state '):
 		fixed_tensor = Tensor(inst[len('state '):])
 		return fixed_tensor.size(), lambda s: fixed_tensor
 	elif inst.startswith('multistate '):
@@ -1356,12 +1358,13 @@ def compile_command_instruction(inst, current_gatesize):
 def compile_instructions3_to_fun(*insts):
 	# print("compiling fun: {}".format(insts))
 
-	insts = flatten([ filter(lambda s: s != '', map(lambda s: s.strip(), i.split('\n'))) if type(i) is str else [ i ] for i in insts ])
+	insts = flatten([ filter(lambda s: s != '' and not s.startswith('#'), map(lambda s: s.strip(), i.split('\n'))) if type(i) is str else [ i ] for i in insts ])
+	print(insts)
 	execution = []
 	rolling_insts = []
 	current_gatesize = 0
 	for inst in insts:
-		if inst.startswith('state ') or inst.startswith('multistate ') or inst.startswith('measure') or inst.startswith('partial_measure '):
+		if inst.startswith('gatesize ') or inst.startswith('state ') or inst.startswith('multistate ') or inst.startswith('measure') or inst.startswith('partial_measure '):
 			if len(rolling_insts) > 0:
 				matrix = compile_instructions_block_matrix2(current_gatesize, '\n'.join(rolling_insts))
 				execution.append(lambda s: s * matrix)
@@ -1375,6 +1378,8 @@ def compile_instructions3_to_fun(*insts):
 		matrix = compile_instructions_block_matrix2(current_gatesize, '\n'.join(rolling_insts))
 		execution.append(lambda s: s * matrix)
 		rolling_insts = []
+
+	# print("compiled fun:\n" + compile_instructions_str(current_gatesize, *insts))
 
 	def executable(s=None):
 		for f in execution:
@@ -1391,6 +1396,8 @@ def parse_instruction_to_str(inst, gatesize):
 		'tdagger': 't',
 		'zgate': 'Z',
 		'sgate': 'S',
+
+		'partial_measure': '%',
 	}
 	rotate_gate_builders = {
 		'rx': 'rX',
@@ -1404,9 +1411,15 @@ def parse_instruction_to_str(inst, gatesize):
 		'ccnot': 'ooX',
 		'cswap': 'oxx',
 	}
+	all_gate_commands = {
+		'measure': '%|',
+		'state': '_ ',
+		'multistate': '01',
+		'gatesize': '- ',
+	}
 
 	inst = inst.lower()
-	(inst_type, position) = inst.split(' ', 1)
+	(inst_type, position) = inst.split(' ', 1) if ' ' in inst else (inst, None)
 	base_str = [ '-' if i % 2 == 0 else ' ' for i in range(gatesize * 2) ]
 	if inst_type in single_gate_matrices:
 		position = int(position)
@@ -1435,13 +1448,42 @@ def parse_instruction_to_str(inst, gatesize):
 		base_str[2 * position_a] = three_gate_matrices[inst_type][0]
 		base_str[2 * position_b] = three_gate_matrices[inst_type][1]
 		base_str[2 * position_c] = three_gate_matrices[inst_type][2]
+	elif inst_type in all_gate_commands:
+		for i in range(len(base_str)-1):
+			if i % 2 == 0:
+				if inst_type == 'state':
+					base_str[i] = position[1+int(i/2)]
+				else:
+					base_str[i] = all_gate_commands[inst_type][0]
+			else:
+				base_str[i] = all_gate_commands[inst_type][1]
 	else:
 		raise Exception('invalid instruction:' + str(inst))
 	return ''.join(base_str)
 
 def compile_instructions_str(gatesize, *insts):
 	# print("compiling fun: {}".format(insts))
-	insts = flatten([ filter(lambda s: s != '', map(lambda s: s.strip(), i.split('\n'))) if type(i) is str else [ i ] for i in insts ])
+	insts = flatten([ filter(lambda s: s != '' and not s.startswith('#'), map(lambda s: s.strip(), i.split('\n'))) if type(i) is str else [ i ] for i in insts ])
+	strs = [ parse_instruction_to_str(i, gatesize) if type(i) is str else i for i in insts ]
+	lines = [ ['[]-'] + ['-'] * (len(strs) * 2) + ['-[]'] if i % 2 == 0 else ['   '] + [' '] * (len(strs) * 2) + ['   '] for i in range(gatesize * 2) ]
+	for si in range(len(strs)):
+		for i in range(len(lines)):
+			lines[i][si*2+1] = strs[si][i]
+	return '\n'.join( ''.join(l) for l in lines )
+
+def compile_instructions_str2(*insts):
+	# print("compiling fun: {}".format(insts))
+	insts = flatten([ filter(lambda s: s != '' and not s.startswith('#'), map(lambda s: s.strip(), i.split('\n'))) if type(i) is str else [ i ] for i in insts ])
+
+	gatesize = 0
+	for inst in insts:
+		if inst.startswith('state '):
+			gatesize = Tensor(inst[len('state '):]).size()
+		elif inst.startswith('multistate '):
+			gatesize = int(inst[len('multistate '):])
+		elif inst.startswith('gatesize '):
+			gatesize = int(inst[len('gatesize '):])
+
 	strs = [ parse_instruction_to_str(i, gatesize) if type(i) is str else i for i in insts ]
 	lines = [ ['[]-'] + ['-'] * (len(strs) * 2) + ['-[]'] if i % 2 == 0 else ['   '] + [' '] * (len(strs) * 2) + ['   '] for i in range(gatesize * 2) ]
 	for si in range(len(strs)):
@@ -1625,3 +1667,5 @@ test('compile_instructions3_to_fun("""state |010>\n hadamard 0\n cnot 0,2\n part
 test('compile_instructions3_to_fun("""state |00>\n hadamard 0\n hadamard 1\n partial_measure 0\n partial_measure 1""")() == "(50.0% : (50.0% : |00>), (50.0% : |10>)), (50.0% : (50.0% : |01>), (50.0% : |11>))"')
 test('compile_instructions3_to_fun("""state |000>\n hadamard 0\n hadamard 1\n partial_measure 0\n partial_measure 1""")() == "(50.0% : (50.0% : |000>), (50.0% : |010>)), (50.0% : (50.0% : |001>), (50.0% : |011>))"')
 
+
+print(compile_instructions3_to_fun('#swap 0,2')())
